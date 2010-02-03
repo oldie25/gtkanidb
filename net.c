@@ -142,10 +142,10 @@ network_write(int fd, const char* data, size_t len)
 /* reads len of data from network to data
  * returns # of bytes read
  */
-size_t
+ssize_t
 network_read(int fd, char* data, size_t len)
 {
-	int i;
+	ssize_t i;
 
 	if (fd < 0) {
 		return (-1);
