@@ -1,8 +1,9 @@
 #ifndef __defs_file_h_included
 #define __defs_file_h_included
 
-static const char* ANIDBSERVER = "localhost";
-static const int REMOTEPORT = 9000;
-static const int LOCALPORT = 9000;
+extern const char* ANIDBSERVER;
+extern const int REMOTEPORT;
+extern const int LOCALPORT;
+extern const char* SAFETYFILE;
 
 #endif
