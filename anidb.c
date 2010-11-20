@@ -12,7 +12,7 @@ const char* ANIDBSERVER = "api.anidb.net";
 const int REMOTEPORT = 9000;
 const int LOCALPORT = 9000;
 const int CLIENTVERSION = 1;
-const int APIVERSION = 2;
+const int APIVERSION = 3;
 
 enum cmds {
 	PING = 0,
