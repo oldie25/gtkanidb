@@ -1,163 +1,162 @@
 #include "net.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-
+#include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 
-#include "defs.h" /* local program definitions */
+static int fd = -1;
+static struct sockaddr_in out_sock;
+static struct sockaddr_in in_sock;
+static time_t last_sent = 0;
 
-static struct sockaddr_in g_socket; /* main socket */
-static struct sockaddr_in l_socket; /* local socket */
+int create_socket(const char* address, int port);
+int initialize_sockets();
+int connect_socket();
+void zero_socket(struct sockaddr_in* sock);
+void delay_send();
 
-/* if it fails to open a socket, returns -1
- * else, returns a valid file descriptor
- */
 int
-network_open()
-{
-	struct hostent* hostinfo;
-	struct in_addr address;
-	const struct timeval tmo = { 30, 0 }; /* 30s timeout */
-	int fd = -1;
-	const int flag = 1;
-	int i;
-	
-	memset ((char*)&g_socket, 0, sizeof(g_socket)); /* zero socket */
-
-	address.s_addr = inet_addr (ANIDBSERVER); /* find address of server */
-	errno = 0;
-	if (address.s_addr != INADDR_NONE) {
-		hostinfo = gethostbyaddr ((char*)&address,
-						sizeof(address), AF_INET);
-		if (errno != 0) {
-			perror ("couldn't resolve");
-			return (fd);
-		}
-	} else {
-		hostinfo = gethostbyname (ANIDBSERVER);
-		if (!hostinfo) {
-			perror ("couldn't resolve");
-			return (fd);
-		}
-		if ((size_t)hostinfo->h_length > sizeof(g_socket.sin_addr) ||
-				hostinfo->h_length < 0) {
-			perror ("illegal address");
-			return (fd);
-		}
-	}
-	/* we have an address */
-	g_socket.sin_family = hostinfo->h_addrtype;
-#ifndef linux
-	g_socket.sin_len = sizeof (g_socket);
-#endif
-	memcpy (&g_socket.sin_addr, hostinfo->h_addr_list[0],
-			(size_t)hostinfo->h_length);
-	g_socket.sin_port = htons (REMOTEPORT);
-
-	/* now, lets actually get a socket! */
-	fd = socket (g_socket.sin_family, SOCK_DGRAM, IPPROTO_UDP);
-
-	if (fd < 0) {
-		perror ("couldn't open a socket");
-		return (fd);
-	}
-
-	errno = 0;
-	i = setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
-	if (i < 0) {
-		perror ("couldn't set timeout");
+network_open(const char* address, int port) {
+	if (!address) {
 		return (-1);
 	}
-
-	i = setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
-	if (i < 0) {
-		perror ("couldn't set address");
+	if (port <= 0 || port >= 65535) {
 		return (-1);
 	}
-
-	memset ((char*)&l_socket, 0, sizeof(l_socket));
-#ifndef linux
-	l_socket.sin_len = sizeof (l_socket);
-#endif
-
-	l_socket.sin_family = g_socket.sin_family;
-	l_socket.sin_port = htons (LOCALPORT);
-
-	i = bind (fd, (struct sockaddr*)(&l_socket), sizeof(l_socket));
-	if (i < 0) {
-		perror ("couldn't bind");
-		return (-1);
-	}
-	i = connect (fd, (struct sockaddr*)(&g_socket), sizeof(g_socket));
-	if (i < 0) {
-		perror ("couldn't connect");
-		return (-1);
-	}
-	return (fd);
-}
-
-/* closes the file descriptor
- * returns 0
- */
-int
-network_close(int fd)
-{
-	int i;
-
 	if (fd > 0) {
-		i = shutdown (fd, SHUT_RDWR);
+		/* connection already established */
+		return (0);
+	}
+	if (create_socket(address, port)) {
+		return (-1);
+	}
+	if (initialize_sockets()) {
+		return (-1);
+	}
+	if (connect_socket()) {
+		return (-1);
 	}
 	return (0);
 }
 
-/* writes len of data to fd
- * returns # of bytes written
- */
 int
-network_write(int fd, const char* data, size_t len)
-{
-	int i;
-
-	if (fd < 0) {
-		return (-1);
+network_close() {
+	int r = 0;
+	if (fd != -1) {	
+		r = close (fd);
+		if (r != 0) {
+			return (-1);
+		}
 	}
-
-	errno = 0;
-	i = write (fd, (const void*)data, len);
-	if (i < 0) {
-		/* check error */
-		perror (strerror(errno));
-	}
-	return (i);
+	zero_socket (&out_sock);
+	zero_socket (&in_sock);
+	return (0);
 }
 
-/* reads len of data from network to data
- * returns # of bytes read
- */
-ssize_t
-network_read(int fd, char* data, size_t len)
-{
-	ssize_t i;
+unsigned long
+network_send(const void* buf, unsigned int len) {
+	unsigned long sent = 0;
+	if (!buf) {
+		return (0);
+	}
+	delay_send ();
+	sent = send (fd, buf, len, 0);
+	if (sent == -1) {
+		return (0);
+	}
+	return (sent);
+}
 
-	if (fd < 0) {
+unsigned long
+network_recv(void* buf, unsigned int len) {
+	unsigned long got = 0;
+	if (!buf) {
+		return (0);
+	}
+	memset (buf, 0, len);
+	got = recv (fd, buf, len, 0);
+	if (got == -1) {
 		return (-1);
 	}
+	return (got);
+}
 
-	errno = 0;
-	memset (data, 0, len);
-	i = read (fd, data, len);
+int
+create_socket(const char* address, int port) {
+	struct hostent* hp;
 
-	if (i < 0) {
-		perror (strerror(errno));
-		return (-1);
+	fd = socket (PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (fd == -1) {
+		return (1);
 	}
-	return (i);
+	hp = gethostbyname (address);
+	if (hp == NULL) {
+		return (1);
+	}
+	zero_socket (&out_sock);
+	out_sock.sin_family = AF_INET;
+	out_sock.sin_port = htons (port);
+	memcpy (&out_sock.sin_addr, hp->h_addr_list[0], (unsigned)(hp->h_length));
+	zero_socket (&in_sock);
+	in_sock.sin_family = AF_INET;
+	in_sock.sin_addr.s_addr = htonl (INADDR_ANY);
+	in_sock.sin_port = htons (port);
+	return (0);
+}
+
+int
+initialize_sockets() {
+	struct timeval timeout = {30,0}; /* 30s timeout */
+	int dumby = 0;
+	int r = 0;
+
+#define CHECK_FAIL(val) \
+	if (val != 0) return (1)
+
+	r = setsockopt (fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+	CHECK_FAIL (r);
+	r = setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &dumby, sizeof(dumby));
+	CHECK_FAIL (r);
+#ifdef SO_REUSEPORT
+	r = setsockopt (fd, SOL_SOCKET, SO_REUSEPORT, &dumby, sizeof(dumby));
+	CHECK_FAIL (r);
+#endif
+	r = setsockopt (fd, SOL_SOCKET, SO_KEEPALIVE, &dumby, sizeof(dumby));
+	CHECK_FAIL (r);
+	return (0);
+}
+
+int
+connect_socket() {
+	int r = 0;
+	r = bind (fd, (struct sockaddr*)(&in_sock), sizeof(in_sock));
+	if (r != 0) {
+		return (1);
+	}
+	r = connect (fd, (struct sockaddr*)(&out_sock), sizeof(out_sock));
+	if (r != 0) {
+		return (1);
+	}
+	return (0);
+}
+
+void
+zero_socket(struct sockaddr_in* sock) {
+	memset ((void*)sock, 0, sizeof(struct sockaddr_in));
+}
+
+void
+delay_send() {
+	int delay = last_sent - time(NULL);
+	if (last_sent != 0 && delay > 0) {
+		sleep ((unsigned int)delay);
+	}
+	last_sent = time(NULL) + 6;
 }

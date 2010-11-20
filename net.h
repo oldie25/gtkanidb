@@ -1,15 +1,9 @@
 #ifndef __net_file_h_included__
 #define __net_file_h_included__
 
-#include <sys/types.h>
-
-/* returns a fd */
-int network_open();
-/* closes the fd */
-int network_close(int);
-/* writes to the fd */
-int network_write(int, const char*, size_t);
-/* reads from the fd */
-ssize_t network_read(int, char*, size_t);
+int network_open(const char* address, int port);
+int network_close();
+unsigned long network_send(const void* buf, unsigned int len);
+unsigned long network_recv(void* buf, unsigned int len);
 
 #endif /* __net_file_h_included */

@@ -1,42 +1,22 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "defs.h"
-#include "control_net.h"
-
-const char* ANIDBSERVER = "localhost";
-const int REMOTEPORT = 9000;
-const int LOCALPORT = 9000;
-const char* SAFETYFILE = "./tm";
+#include "anidb.h"
 
 int
 main(int argc, const char** argv)
 {
-	int fd;
-	int i, j;
-	const char* str = "shit man";
-	char blah[25] = {"\0"};
-
-	fd = copen ();
-
-	if (fd < 0) {
-		printf ("failure\n");
+	if (anidb_init() < 0) {
+		fprintf (stderr, "couldn't initialize\n");
 		return (-1);
 	}
-	for (j = 0; j < 5; j++) {
-		i = cwrite (fd, str, strlen(str));
-		if (i < 0) {
-			printf ("failure to write\n");
-			return (-1);
-		}
-		i = cread (fd, blah, sizeof(blah));
-		if (i <= 0) {
-			printf ("failure to read\n");
-			return (-1);
-		}
-		printf ("'%s' was the string read\n", blah);
+	if (anidb_ping() != 300) {
+		fprintf (stderr, "couldn't ping server\n");
+		return (-1);
 	}
-	network_close (fd);
+	if (anidb_version() < 0) {
+		fprintf (stderr, "couldn't get version\n");
+	}
 	printf ("success\n");
 	return (0);
 }
